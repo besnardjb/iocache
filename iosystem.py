@@ -1,5 +1,6 @@
 
 import json
+from os import name
 
 import random
 
@@ -20,8 +21,16 @@ class Link():
     def bind_out(self, output):
         self._output = output
 
-    def bind_in(self, output):
-        self._output = output
+    def bind_in(self, input):
+        self._input = input
+
+    @property
+    def lin(self):
+        return self._input
+
+    @property
+    def lout(self):
+        return self._output
 
     @property
     def writing(self):
@@ -110,8 +119,6 @@ class Cache():
 
 
     def write_tick(self, size, tick=1.0):
-        # First send local data for one tick
-        self.flush_tick(tick)
 
         if self.full:
             return 0
@@ -173,6 +180,9 @@ class IOSystem():
         self.links = {}
         self._load_conf(config_file)
 
+        self.ref = None
+        self.tick = None
+
         self.iops = []
         self.xaxis = []
         self.bws = {}
@@ -223,7 +233,17 @@ class IOSystem():
         self._mark_val = (self._mark_val + 1) % len(m)
         return ret
 
-    def run(self, ref="storage", tick=1.0):
+    def run(self, ref=None, tick=None):
+
+        if ref is None:
+            ref = self.ref
+
+        if tick is None:
+            tick = self.tick
+
+        if tick is None:
+            tick = 1.0
+
         total = self.ops_total(self.iops)
 
         time = 0
@@ -291,12 +311,11 @@ class IOSystem():
         # Now plot
         count = len(self.sizes) + 1
         fig, axs = plt.subplots(count)
-        fig.suptitle('IO Cache simulation')
 
         axs[0].yaxis.set_major_formatter(rfsize)
         axs[0].set_title("Bandwiths on links with IOPs")
         for n,v in self.bws.items():
-            axs[0].plot(self.xaxis, v, label=n, marker=self._random_marker())
+            axs[0].plot(self.xaxis, v, label=n, marker=self._random_marker(), linewidth=0.3, markersize=2)
 
         axs[0].legend()
 
@@ -317,15 +336,25 @@ class IOSystem():
         return sum([ uconvert(x[1]) for x in ops ])
 
     def write(self, ops, tick=1.0):
+        # First flush caches in random order
+        cl = [v for v in self.caches.values()]
+        random.shuffle(cl)
 
+        # Intialize OP write
         for op in ops:
             ln = op[0]
             size = uconvert(op[1])
             l = self.links[ln]
             l.write_init(size, tick)
 
+
+        for c in cl:
+            c.flush_tick(tick)
+
+
         ret = [None] * len(ops)
 
+        # Proceed on ops in random order
         idxs = [ i for i in range(0, len(ops)) ]
         random.shuffle(idxs)
 
@@ -337,12 +366,63 @@ class IOSystem():
             ret[i]= written
             op[1] = "{}".format(uconvert(op[1]) - written)
 
+        # Write DONE
         for op in ops:
             ln = op[0]
             l = self.links[ln]
             l.write_done()
 
         return ops, ret
+
+    def dot(self,outpath):
+
+        with open(outpath.as_posix(), "w") as f:
+            f.write("Digraph G{\n")
+
+            # Create cache node for all caches
+            for c in self.caches.values():
+                f.write("\"{}\" [label=\"{} size {} BW {}\", shape=cylinder]\n".format(c.name, c.name, rfsize(c.size), rfsize(c.bandwidth)))
+
+            # Create input / output nodes for all links with no input / output
+            # Create cache node for all caches
+            for l in self.links.values():
+                if not l.lin:
+                    f.write("\"{}_in\" [label=\"{}\" shape=cds]\n".format(l.name, l.name))
+                if not l.lout:
+                    f.write("\"{}_out\" [label=\"NULL {}\"]\n".format(l.name, l.name))
+
+            for l in self.links.values():
+                if l.lin is None:
+                    lin = "{}_in".format(l.name)
+                else:
+                    lin = l.lin.name
+                if l.lout is None:
+                    lout = "{}_out".format(l.name)
+                else:
+                    lout = l.lout.name
+
+                f.write("\"{}\" -> \"{}\" [label=\"{} BW {}\"]\n".format(lin, lout, l.name, rfsize(l.bandwidth)))
+
+            f.write("}\n")
+
+    def load_ops(self, path):
+        self.ops_clear()
+        with open(path) as f:
+            data = json.load(f)
+            if not "reference" in data:
+                raise Exception("{} should contain a 'reference' key".format(path))
+            if not "ops" in data:
+                raise Exception("{} should contain an 'ops' array".format(path))
+
+            self.ref = data["reference"]
+
+            if "tick" in data:
+                self.tick = float(data["tick"])
+
+            for op in data["ops"]:
+                self.ops_push(op)
+
+
 
     def cache_state(self):
         ret = {}
