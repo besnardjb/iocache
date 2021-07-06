@@ -296,7 +296,7 @@ class IOSystem():
 
 
 
-    def plot(self):
+    def plot(self, output=None):
         # First pad all arrays in BW
         maxlen = max([len(self.bws[x]) for x in self.bws])
 
@@ -326,7 +326,10 @@ class IOSystem():
             axs[1+cnt].plot(self.xaxis, v)
             cnt=cnt+1
 
-        plt.show()
+        if output is None:
+            plt.show()
+        else:
+            plt.savefig(output)
 
     def ops_done(self, ops):
         left = self.ops_total(ops)
