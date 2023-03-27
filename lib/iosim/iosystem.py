@@ -302,6 +302,9 @@ class IOSystem():
 
         tmp = {}
 
+        plt.rcParams.update({'font.size': 6})
+
+
         for c,v in self.bws.items():
             t = v + [0.0] * (maxlen - len(v))
             tmp[c] = t
@@ -322,8 +325,9 @@ class IOSystem():
         cnt = 0
         for c,v in self.sizes.items():
             axs[1+cnt].yaxis.set_major_formatter(rfsize)
-            axs[1+cnt].set_title(c)
-            axs[1+cnt].plot(self.xaxis, v)
+            #axs[1+cnt].set_title(c)
+            axs[1+cnt].plot(self.xaxis, v, label=c)
+            axs[1+cnt].legend()
             cnt=cnt+1
 
         if output is None:
